@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Multiple: can a public page reach your local daemon?</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 44rem; background: #2e3440; color: #d8dee9; }
+      button { font: inherit; padding: 0.4rem 0.9rem; border-radius: 999px; border: 0; background: #88c0d0; color: #2e3440; cursor: pointer; }
+      input { font: inherit; width: 5rem; padding: 0.3rem; }
+      li { margin: 0.4rem 0; }
+      .ok { color: #a3be8c; } .bad { color: #bf616a; } .wait { color: #ebcb8b; }
+      code { color: #ebcb8b; }
+    </style>
+  </head>
+  <body>
+    <h1>Can this public page reach a daemon on your machine?</h1>
+    <p>A throwaway probe for Multiple. It connects to a test daemon on <code>localhost</code> and reports what the browser allows. Nothing is sent anywhere else.</p>
+    <p>Port <input id="port" value="2469" /> <button id="run">Run the checks</button></p>
+    <ul id="results"></ul>
+    <p id="agent"></p>
+    <script>
+      const results = document.getElementById("results");
+      document.getElementById("agent").textContent = navigator.userAgent;
+      function row(label) {
+        const li = document.createElement("li");
+        li.innerHTML = `<span class="wait">…</span> ${label}`;
+        results.append(li);
+        return (ok, detail) => (li.innerHTML = `<span class="${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"}</span> ${label}: ${detail}`);
+      }
+      function socket(host, port) {
+        const done = row(`WebSocket to ws://${host}:${port}/api/events`);
+        return new Promise((resolve) => {
+          let settled = false;
+          const finish = (ok, detail) => { if (!settled) { settled = true; done(ok, detail); resolve(); } };
+          try {
+            const ws = new WebSocket(`ws://${host}:${port}/api/events`);
+            ws.onmessage = ({ data }) => { const type = JSON.parse(data).type; ws.close(); finish(true, `connected and received a "${type}" message`); };
+            ws.onerror = () => finish(false, "the connection failed (see the browser console for why)");
+            setTimeout(() => { ws.close(); finish(false, "timed out after 10 seconds"); }, 10000);
+          } catch (error) {
+            finish(false, `blocked before connecting: ${error.message}`);
+          }
+        });
+      }
+      async function request(host, port) {
+        const done = row(`Request to http://${host}:${port}/`);
+        try {
+          const response = await fetch(`http://${host}:${port}/`, { mode: "no-cors" });
+          done(true, `allowed (response type "${response.type}")`);
+        } catch (error) {
+          done(false, `blocked: ${error.message}`);
+        }
+      }
+      document.getElementById("run").onclick = async () => {
+        results.replaceChildren();
+        const port = document.getElementById("port").value;
+        await request("localhost", port);
+        await socket("localhost", port);
+        await socket("127.0.0.1", port);
+      };
+    </script>
+  </body>
+</html>
